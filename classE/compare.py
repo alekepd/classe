@@ -139,7 +139,8 @@ def compare_distance_tables(table_0,table_1,
         d = {"table":df_shap,
              "feature_names":feature_names,
              "shap_names":shap_names,
-             "other_names":nonfeature_names
+             "other_names":nonfeature_names,
+             "shaper":lambda x: explainer.shap_values(x)[0]
              }
         return d
     else:
