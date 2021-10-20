@@ -96,6 +96,7 @@ def traj_distances_array(pos_array,return_tuple_labels=False,particle_names=None
         return distance_array
 
 def make_distance_table(pos_array,distance_method=traj_distances_array,
+                        distance_max=np.Inf,
                         **kwargs):
     """Creates a distance panda from position array.
 
@@ -112,6 +113,8 @@ def make_distance_table(pos_array,distance_method=traj_distances_array,
     distance_array,dist_tups = distance_method(pos_array,
                                                return_tuple_labels=True,
                                                **kwargs)
+
+    distance_array[distance_array>distance_max] = distance_max
     tab = pd.DataFrame(distance_array)
     dist_names = [ob[0]+'-'+ob[1] for ob in dist_tups]
     tab.columns = dist_names
