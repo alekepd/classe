@@ -4,7 +4,6 @@ import numpy as np
 import shap
 
 kb = 1.380649*(10**-23) #boltzmann constant J/K
-kbt = kb*350
 
 # trajectory position array shapes: n_frames, n_atoms, n_dim
 # feature array shapes: n_cases, n_features
@@ -18,7 +17,7 @@ _default_lgbm_options = {'num_leaves':6,
                          'feature_fraction':0.5,
                          'n_iter':100}
 
-def compare_distance_tables(table_0,table_1,
+def compare_distance_tables(table_0,table_1,temperature,
                             train_fraction=0.5,force_balance=False,
                             lgbm_options=_default_lgbm_options,
                             return_label_lists=True):
@@ -33,6 +32,9 @@ def compare_distance_tables(table_0,table_1,
     table_1: panda DataFrame
         Structural data from ensemble 1 (0-indexed). Columns should only contain
         feature values, index should be frame number.
+    temperature: positive real
+        Temperature of the system in Kelvin. Converted to J via module variable
+        `kb` when calculating delta_u.
     train_fraction: float (between 0 and 1, default: 0.5)
         Fraction of data to use as training set. Remainder is use as validation
         set (score shown during training). 
@@ -67,11 +69,12 @@ def compare_distance_tables(table_0,table_1,
     shap df has many columns. Feature are included with names unchanged; shap
     values are the same as features but prefixed with "s-". delta_u uses the
     trained model to estimate the pointwise difference in the PMFs/log densities
-    of the provided data (note that this uses the module variable kbt);
-    tree_output notes the original output of the model (between 0 and 1).
-    fake_label is primarily for debugging and notes the label that was used
-    internally for a given example.
+    of the provided data tree_output notes the original output of the model
+    (between 0 and 1).  fake_label is primarily for debugging and notes the
+    label that was used internally for a given example.
     """
+
+    kbt = temperature * kb
 
     feature_names = table_0.columns
 
@@ -124,7 +127,7 @@ def compare_distance_tables(table_0,table_1,
     explainer = shap.TreeExplainer(trees)
 
     #get shap values
-    df_shap = pd.DataFrame(explainer.shap_values(df[feature_names])[0],
+    df_shap = pd.DataFrame(kbt*(explainer.shap_values(df[feature_names])[0]),
                            dtype=np.float32)
 
     #rename and put label columns
@@ -133,7 +136,7 @@ def compare_distance_tables(table_0,table_1,
     df_shap.index = df.index
     df_shap = pd.concat([df, df_shap], axis=1)
     df_shap['delta_u'] = \
-        kbt*np.log(df_shap['tree_output']/(1-df_shap['tree_output']))
+        -kbt*np.log(df_shap['tree_output']/(1-df_shap['tree_output']))
 
     if return_label_lists:
         d = {"table":df_shap,

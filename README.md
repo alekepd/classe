@@ -33,7 +33,7 @@ ref_array=np.load("data/ref_coords.npy")
 mod=feat.make_distance_table(mod_array,batch_size=50000)
 ref=feat.make_distance_table(ref_array,batch_size=50000)
 #run classE analysis
-results=cc.compare_distance_tables(mod,ref)
+results=cc.compare_distance_tables(mod,ref,force_balance=True,temperature=350)
 ```
 `results` contains a table with the SHAP values and estimate error, along with many
 other useful quantities. 
