@@ -146,7 +146,7 @@ def compare_distance_tables(table_0,table_1,
     else:
         return df_shap
 
-def summarize_shap_table(table,column_names):
+def summarize_shap_table(table,column_names,quantile=None):
     """Provide summary statistics for a shap table.
 
     Arguments
@@ -155,14 +155,19 @@ def summarize_shap_table(table,column_names):
         Data to summarize. Subsetted using column_names.
     column_names: list of strings or panda index
         Selection of columns to summarize
+    quantile: float between 0 and 1 or None (default: None)
+        If not None, then the quantile over the absolute values is returned;
+        else, the mean is.
 
     NOTE: No balancing of classes is done.
 
     Return
     ------
-    Mean absolute value of each column
+    Mean or quantile of the absolute values of each column
     """
 
     df = table[column_names]
-    return df.abs().apply(lambda x: x.mean(),axis=0)
-
+    if quantile is None:
+        return df.abs().apply(lambda x: x.mean(),axis=0)
+    else:
+        return df.abs().apply(lambda x: x.quantile(quantile),axis=0)
