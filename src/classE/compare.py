@@ -18,7 +18,7 @@ _default_lgbm_options = {'num_leaves':6,
                          'n_iter':100}
 
 def compare_distance_tables(table_0,table_1,temperature,
-                            train_fraction=0.5,force_balance=False,
+                            train_fraction=0.5,
                             lgbm_options=_default_lgbm_options,
                             return_label_lists=True):
     """Create a shap table using structure tables. Performs tree classification
@@ -42,9 +42,6 @@ def compare_distance_tables(table_0,table_1,temperature,
         NOTE: If using DART (this is default), although the validation loss is
         shown during training LGBM does not do automatic stopping (so pay
         attention to make sure you aren't overfitting).
-    force_balance: boolean (default: False)
-        If true, before training the input tables are made to have the same
-        number of samples via downsampling.
     lgbm_options: dictionary (passed to lgbm.train as options,
                   default: _default_lgbm_options module variable)
         This dictionary is passed to lgbm.train as options.
@@ -78,21 +75,7 @@ def compare_distance_tables(table_0,table_1,temperature,
 
     feature_names = table_0.columns
 
-    #make combined panda
-    safe_t0 = table_0.copy()
-    safe_t1 = table_1.copy()
-    safe_t0['fake_label'] = 0
-    safe_t1['fake_label'] = 1
-    df = pd.concat([safe_t0,safe_t1],keys=[0,1])
-
-    #makes classes balanced if desired
-    if force_balance:
-        nsamples = df['fake_label'].value_counts().min()
-        grouped = df.groupby('fake_label',as_index=False)
-        df_b = grouped.apply(lambda x,n: x.sample(n),n=nsamples)
-        df_b.index = df_b.index.droplevel(0)
-    else:
-        df_b = df
+    df, df_b = combine_tables(table_0,table_1,force_balance='both')
 
     #mark who is in train vs test
     mask = np.full(len(df_b),False)
@@ -148,6 +131,96 @@ def compare_distance_tables(table_0,table_1,temperature,
         return d
     else:
         return df_shap
+
+def combine_tables(table_0,table_1,force_balance=False):
+    """Provide summary statistics for a shap table.
+
+    Arguments
+    ---------
+    table_0: panda DataFrame
+        table of first (featurized) trajectory. Index should be the frame number.
+        Columns are features.
+    table_1: panda DataFrame
+        table of second (featurized) trajectory. Index should be the frame number. 
+        Columns are features.
+    force_balance: boolean or 'both' (default: False)
+        If true, the classes are balanced (so that there is an approximately equal 
+        number of samples from table_0 and table_1).
+
+    Returns
+    -------
+    If force_balance, tuple with first element the entire combined DataFrame
+    and second element the balanced frame. If false, only the combined frame.
+    """
+
+    #make combined panda
+    safe_t0 = table_0.copy()
+    safe_t1 = table_1.copy()
+    safe_t0['fake_label'] = 0
+    safe_t1['fake_label'] = 1
+    df = pd.concat([safe_t0,safe_t1],keys=[0,1])
+
+    nsamples = df['fake_label'].value_counts().min()
+    grouped = df.groupby('fake_label',as_index=False)
+    df_b = grouped.apply(lambda x,n: x.sample(n),n=nsamples)
+    df_b.index = df_b.index.droplevel(0)
+
+    #makes classes balanced if desired
+    if force_balance == 'both':
+        return (df,df_b)
+    elif force_balance is True:
+        return df_b
+    elif force_balance is False:
+        return df
+    else:
+        raise ValueError("force_balance argument unclear.")
+
+def compare_distance_tables_cv(table_0,table_1,
+                               n_folds=5,force_balance=True,
+                               lgbm_options=_default_lgbm_options):
+    """Performs cross validation using the lightgbm library. Useful for determining
+    the number of trees to use. Note that only the fold-averaged losses (and their
+    standard deviations) as a function of tree number are returned.
+
+    Arguments
+    ---------
+    table_0: panda DataFrame
+        table of first (featurized) trajectory. Index should be the frame number.
+        Columns are features.
+    table_1: panda DataFrame
+        table of second (featurized) trajectory. Index should be the frame number. 
+        Columns are features.
+    n_folds: positive integer (default: 5)
+        Number of cross validation folds
+    lgbm_options: dictionary
+        Options passed to lightgbm
+
+    Return
+    ------
+    Dictionary of metrics as a function iteration. See lightgbm's cv function for 
+    more information.
+
+    NOTE
+    ----
+    This procedure evaluates the performance of a model building procedure where all 
+    parameters but number of trees is constant. A single run can tell you the 
+    correct number of trees to use, but if you want to optimize over other 
+    hyperparameters it will require multiple calls. Furthermore, no trained model is 
+    returned.
+    """
+
+    feature_names = table_0.columns
+
+    df_b = combine_tables(table_0,table_1,force_balance=force_balance)
+    ds = lgbm.Dataset(df_b[feature_names],df_b['fake_label'])
+
+    #train model
+    trees = lgbm.cv(lgbm_options,
+                    train_set=ds,
+                    nfold=n_folds,
+                    stratified=False)
+
+    return trees
 
 def summarize_shap_table(table,column_names,quantile=None):
     """Provide summary statistics for a shap table.
