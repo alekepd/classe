@@ -85,9 +85,9 @@ def process(array_filename, pdb_filename, featers, stride=1, self_label=False):
     Arguments:
         array_filename (numpy.ndarray, string, or a
         single-element dictionary)
-            In the case of filename of a .npy or .npz trajectory file, or a 
-            numpy.ndarray, the resulting array will be passed to the elements 
-            of @featers. In the case of a dictionary, the length 1 argument 
+            In the case of filename of a .npy or .npz trajectory file, or a
+            numpy.ndarray, the resulting array will be passed to the elements
+            of @featers. In the case of a dictionary, the length 1 argument
             must have the form of {<name>:<array>}, where <name> is used in
             situations where a filename would be (e.g., self_label).
 
@@ -114,7 +114,7 @@ def process(array_filename, pdb_filename, featers, stride=1, self_label=False):
 
             Note that even featers with scalar output _should_ have a
             2-dimensional output shape and (one-element) list of column names,
-            although internal panda calls seem to not cause issues if the 
+            although internal panda calls seem to not cause issues if the
             output array is one dimensional.
 
         stride (positive integer)
@@ -176,9 +176,9 @@ def process(array_filename, pdb_filename, featers, stride=1, self_label=False):
     tables = [pd.concat(pt, axis=1) for pt in proto_tables]
     full_table = pd.concat(tables, axis=0)
     if self_label is True:
-        full_table.insert(loc=0,column="filename",value=self_name)
+        full_table.insert(loc=0, column="filename", value=self_name)
     elif self_label is not False:
-        full_table.insert(loc=0,column="filename",value=self_label)
+        full_table.insert(loc=0, column="filename", value=self_label)
 
     return full_table
 
@@ -232,7 +232,7 @@ def mprocess(array_filenames, add_r_step_index=True, joblib=False, n_jobs=-2, **
 
     """
     if isinstance(array_filenames, collections.Mapping):
-        array_filenames = [{key:ob} for key,ob in array_filenames.items()]
+        array_filenames = [{key: ob} for key, ob in array_filenames.items()]
     if joblib:
         cur_p = nc(process, self_label=True, **kwargs)
         results = jb.Parallel(n_jobs=n_jobs)(
@@ -244,7 +244,7 @@ def mprocess(array_filenames, add_r_step_index=True, joblib=False, n_jobs=-2, **
             subtable = process(fi, self_label=True, **kwargs)
             results.append(subtable)
     table = pd.concat(results, axis=0)
-    #the following steps cannot be performed with a duplicate axis
+    # the following steps cannot be performed with a duplicate axis
     table.reset_index(inplace=True, drop=True)
     if add_r_step_index:
         table.sort_values(["replica", "filename", "local_timestep"], inplace=True)
@@ -253,10 +253,10 @@ def mprocess(array_filenames, add_r_step_index=True, joblib=False, n_jobs=-2, **
             sap.index = sap.index.droplevel(0)
         else:
             sap = sap.iloc[0, :]
-        table.insert(loc=0,column="contig_time_index",value=sap)
+        table.insert(loc=0, column="contig_time_index", value=sap)
         table.sort_values(["replica", "contig_time_index"], inplace=True)
-    #we do this _again_ because the previous steps jumbled up the axis and we
-    #want to return a table with a clean axis
+    # we do this _again_ because the previous steps jumbled up the axis and we
+    # want to return a table with a clean axis
     table.reset_index(inplace=True, drop=True)
     return table
 
@@ -429,7 +429,10 @@ def rog(rpos, pdb_filename, atom_names=None):
         mask = atom_filter(traj, atom_list=atom_names, return_mask=True)
         rpos = rpos[:, :, mask, :]
     n_sites = rpos.shape[2]
-    rogs = [np.sqrt((traj_distances_array(pos) ** 2).sum(axis=1) / (n_sites**2)) for pos in rpos]
+    rogs = [
+        np.sqrt((traj_distances_array(pos) ** 2).sum(axis=1) / (n_sites**2))
+        for pos in rpos
+    ]
     return (rogs, ["rog"])
 
 
@@ -539,7 +542,7 @@ def per_atom_frac_native_contacts(
         return (collapsed_contacts, names)
 
 
-def traj_distances_skl(pos_array,return_tuple_labels=False,particle_names=None):
+def traj_distances_skl(pos_array, return_tuple_labels=False, particle_names=None):
     """Transforms position trajectory into array of nonrepeated distances.
     Uses scikit-learn, very slow.
 
@@ -566,7 +569,7 @@ def traj_distances_skl(pos_array,return_tuple_labels=False,particle_names=None):
     """
     distance_list = []
     n_particles = pos_array.shape[1]
-    mat_mask = np.triu_indices(n_particles,1) #no diagonal
+    mat_mask = np.triu_indices(n_particles, 1)  # no diagonal
     for frame in pos_array:
         distances = sk_pairwise_distances(frame)[mat_mask]
         distance_list.append(distances)
@@ -575,18 +578,25 @@ def traj_distances_skl(pos_array,return_tuple_labels=False,particle_names=None):
         if particle_names is None:
             particle_names = [str(ob) for ob in list(range(n_particles))]
         labels = []
-        for p0,p1 in zip(*mat_mask):
+        for p0, p1 in zip(*mat_mask):
             name_0 = particle_names[p0]
             name_1 = particle_names[p1]
-            label = sorted([name_1,name_0])
+            label = sorted([name_1, name_0])
             labels.append(tuple(label))
-        return (distance_array,labels)
+        return (distance_array, labels)
     else:
         return distance_array
 
-def traj_distances_array(pos_array,return_tuple_labels=False,particle_names=None,
-                         array_labels=False,indexing_seqs=None,batch_size=50000,
-                         return_matrix=False):
+
+def traj_distances_array(
+    pos_array,
+    return_tuple_labels=False,
+    particle_names=None,
+    array_labels=False,
+    indexing_seqs=None,
+    batch_size=50000,
+    return_matrix=False,
+):
     """Transforms position trajectory into array of nonrepeated distances.
     Uses array operations, relatively fast.
 
@@ -627,49 +637,54 @@ def traj_distances_array(pos_array,return_tuple_labels=False,particle_names=None
     """
 
     if (indexing_seqs or return_tuple_labels) and return_matrix:
-        raise ValueError("Setting (indexing_seqs or return_tuple_labels) "
-                         "and return_matrix does not make sense is not "
-                         "and is not allowed.")
+        raise ValueError(
+            "Setting (indexing_seqs or return_tuple_labels) "
+            "and return_matrix does not make sense is not "
+            "and is not allowed."
+        )
     n_frames = pos_array.shape[0]
     n_particles = pos_array.shape[1]
-    n_chunks = max(np.floor(n_frames/batch_size),1)
-    chunks = np.array_split(np.arange(n_frames),n_chunks)
+    n_chunks = max(np.floor(n_frames / batch_size), 1)
+    chunks = np.array_split(np.arange(n_frames), n_chunks)
     if return_matrix:
-        distance_array = np.empty((n_frames,n_particles,n_particles))
+        distance_array = np.empty((n_frames, n_particles, n_particles))
         for chunk in chunks:
-            distance_matrix = np.linalg.norm(pos_array[chunk,None,:,:]-pos_array[chunk,:,None,:],
-                                             axis=-1)
-            distance_array[chunk,:,:] = distance_matrix
+            distance_matrix = np.linalg.norm(
+                pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :], axis=-1
+            )
+            distance_array[chunk, :, :] = distance_matrix
     else:
-        n_distances = n_particles*(n_particles-1)//2
-        distance_array = np.empty((n_frames,n_distances))
+        n_distances = n_particles * (n_particles - 1) // 2
+        distance_array = np.empty((n_frames, n_distances))
         if indexing_seqs is None:
-            m,o = np.triu_indices(n_particles,k=1)
+            m, o = np.triu_indices(n_particles, k=1)
         else:
-            m,o = indexing_seqs
+            m, o = indexing_seqs
         for chunk in chunks:
-            distance_matrix = np.linalg.norm(pos_array[chunk,None,:,:]-pos_array[chunk,:,None,:],
-                                             axis=-1)
-            distance_array[chunk,:] = distance_matrix[:,m,o]
+            distance_matrix = np.linalg.norm(
+                pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :], axis=-1
+            )
+            distance_array[chunk, :] = distance_matrix[:, m, o]
     if return_tuple_labels:
         if particle_names is None:
             particle_names = [str(ob) for ob in list(range(n_particles))]
         if array_labels:
-            labels = (m,o)
+            labels = (m, o)
         else:
             labels = []
-            for p0,p1 in zip(m,o):
+            for p0, p1 in zip(m, o):
                 name_0 = particle_names[p0]
                 name_1 = particle_names[p1]
-                label = sorted([name_1,name_0])
+                label = sorted([name_1, name_0])
                 labels.append(tuple(label))
-        return (distance_array,labels)
+        return (distance_array, labels)
     else:
         return distance_array
 
-def make_distance_table(pos_array,distance_method=traj_distances_array,
-                        distance_max=np.Inf,
-                        **kwargs):
+
+def make_distance_table(
+    pos_array, distance_method=traj_distances_array, distance_max=np.Inf, **kwargs
+):
     """Creates a distance panda from position array.
 
     Arguments
@@ -682,13 +697,13 @@ def make_distance_table(pos_array,distance_method=traj_distances_array,
         Panda of labeled distance features for each frame.
     """
 
-    distance_array,dist_tups = distance_method(pos_array,
-                                               return_tuple_labels=True,
-                                               **kwargs)
+    distance_array, dist_tups = distance_method(
+        pos_array, return_tuple_labels=True, **kwargs
+    )
 
-    distance_array[distance_array>distance_max] = distance_max
+    distance_array[distance_array > distance_max] = distance_max
     tab = pd.DataFrame(distance_array)
-    dist_names = [ob[0]+'-'+ob[1] for ob in dist_tups]
+    dist_names = [ob[0] + "-" + ob[1] for ob in dist_tups]
     tab.columns = dist_names
     return tab
 

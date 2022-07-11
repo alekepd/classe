@@ -1,18 +1,18 @@
-import pandas as pd
-import numpy as np
 from sklearn.neighbors import KNeighborsRegressor as KNR
 from sklearn.decomposition import PCA
 from umap import UMAP
 
+
 def _identity(var):
     return var
 
-class PCAUMAP:
 
-    def __init__(self,
-                 pca_params={'n_components':5},
-                 umap_params={'n_neighbors':5,
-                              'n_components':2}):
+class PCAUMAP:
+    def __init__(
+        self,
+        pca_params={"n_components": 5},
+        umap_params={"n_neighbors": 5, "n_components": 2},
+    ):
         """Dimensional reduction object that combine's PCA post processing with
         UMAP dimensional reduction.
 
@@ -28,26 +28,25 @@ class PCAUMAP:
         self.PCA = PCA(**pca_params)
         self.UMAP = UMAP(**umap_params)
 
-    def fit(self,feats):
-        """See sklearn's PCA.fit method.
-        """
+    def fit(self, feats):
+        """See sklearn's PCA.fit method."""
         self.PCA.fit(feats)
         pca_out = self.PCA.transform(feats)
         self.UMAP.fit(pca_out)
 
-    def transform(self,feats):
-        """See sklearn's PCA.transform method.
-        """
+    def transform(self, feats):
+        """See sklearn's PCA.transform method."""
         pca_out = self.PCA.transform(feats)
         return self.UMAP.transform(pca_out)
 
-class TransferCV:
 
-    def __init__(self,
-                 transfer_featurizer=_identity,
-                 reducer=PCAUMAP(),
-                 regressor=KNR(n_neighbors=5)
-                 ):
+class TransferCV:
+    def __init__(
+        self,
+        transfer_featurizer=_identity,
+        reducer=PCAUMAP(),
+        regressor=KNR(n_neighbors=5),
+    ):
         """Reduces a dataset using dimensional reduction, and then trains a
         regressor to reproduce this reduction. Useful when dimensional reduction
         must be applied outside the training set. Implements sklearn
@@ -72,14 +71,13 @@ class TransferCV:
         self.reducer = reducer
         self.regressor = regressor
 
-    def fit(self,data):
-        """See sklearn's PCA.fit method.
-        """
+    def fit(self, data):
+        """See sklearn's PCA.fit method."""
         self.reducer.fit(data)
         self.ref_cv_vals = self.reducer.transform(data)
-        self.regressor.fit(data,self.ref_cv_vals)
+        self.regressor.fit(data, self.ref_cv_vals)
 
-    def transfer_transform(self,data):
+    def transfer_transform(self, data):
         """Similar to the transform method, but applies the transfer_featurizer
         set at __init__ before transforming.
 
@@ -92,7 +90,6 @@ class TransferCV:
         pretransformed = self.featurizer(data)
         return self.regressor.predict(pretransformed)
 
-    def transform(self,data):
-        """See sklearn's PCA.fit transform.
-        """
+    def transform(self, data):
+        """See sklearn's PCA.fit transform."""
         return self.regressor.predict(data)
