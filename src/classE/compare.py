@@ -82,64 +82,63 @@ def compare_distance_tables(
 
     feature_names = table_0.columns
 
-    df, df_b = combine_tables(table_0, table_1, force_balance="both")
+    frame, frame_b = combine_tables(table_0, table_1, force_balance="both")
 
     # mark who is in train vs test
-    mask = np.full(len(df_b), False)
+    mask = np.full(len(frame_b), False)
     to_change = np.random.choice(
         list(range(len(mask))), np.int(len(mask) * train_fraction)
     )
     mask[to_change] = True
-    df_b["in_train"] = mask
+    frame_b["in_train"] = mask
 
     # make lgbm dataset objects
-    df_train = df_b[df_b["in_train"]]
-    df_test = df_b[~df_b["in_train"]]
-    ds_train = lgbm.Dataset(df_train[feature_names], df_train["fake_label"])
+    frame_train = frame_b[frame_b["in_train"]]
+    frame_test = frame_b[~frame_b["in_train"]]
+    ds_train = lgbm.Dataset(frame_train[feature_names], frame_train["fake_label"])
     ds_test = lgbm.Dataset(
-        df_test[feature_names], df_test["fake_label"], reference=ds_train
+        frame_test[feature_names], frame_test["fake_label"], reference=ds_train
     )
 
     # train model
     trees = lgbm.train(lgbm_options, train_set=ds_train, valid_sets=[ds_test])
 
     # associate train labels from subsetted data to original frame
-    df["in_train"] = df_b["in_train"]
-    df["in_train"].fillna(False)
+    frame["in_train"] = frame_b["in_train"]
+    frame["in_train"].fillna(False)
 
     # get tree output
-    df["tree_output"] = trees.predict(df[feature_names])
+    frame["tree_output"] = trees.predict(frame[feature_names])
 
-    nonfeature_names = list(set(df.columns) - set(feature_names))
+    nonfeature_names = list(set(frame.columns) - set(feature_names))
 
     # get shap value generator (not values themselves)
     explainer = shap.TreeExplainer(trees)
 
     # get shap values
-    df_shap = pd.DataFrame(
-        kbt * (explainer.shap_values(df[feature_names])[0]), dtype=np.float32
+    frame_shap = pd.DataFrame(
+        kbt * (explainer.shap_values(frame[feature_names])[0]), dtype=np.float32
     )
 
     # rename and put label columns
-    df_shap.columns = ["s-" + ob for ob in feature_names]
-    shap_names = df_shap.columns
-    df_shap.index = df.index
-    df_shap = pd.concat([df, df_shap], axis=1)
-    df_shap["delta_u"] = -kbt * np.log(
-        df_shap["tree_output"] / (1 - df_shap["tree_output"])
+    frame_shap.columns = ["s-" + ob for ob in feature_names]
+    shap_names = frame_shap.columns
+    frame_shap.index = frame.index
+    frame_shap = pd.concat([frame, frame_shap], axis=1)
+    frame_shap["delta_u"] = -kbt * np.log(
+        frame_shap["tree_output"] / (1 - frame_shap["tree_output"])
     )
 
     if return_label_lists:
-        d = {
-            "table": df_shap,
+        agg = {
+            "table": frame_shap,
             "feature_names": feature_names,
             "shap_names": shap_names,
             "other_names": nonfeature_names,
             "shaper": lambda x: explainer.shap_values(x)[0],
         }
-        return d
-    else:
-        return df_shap
+        return agg
+    return frame_shap
 
 
 def combine_tables(table_0, table_1, force_balance=False):
@@ -168,26 +167,25 @@ def combine_tables(table_0, table_1, force_balance=False):
     safe_t1 = table_1.copy()
     safe_t0["fake_label"] = 0
     safe_t1["fake_label"] = 1
-    df = pd.concat([safe_t0, safe_t1], keys=[0, 1])
+    frame = pd.concat([safe_t0, safe_t1], keys=[0, 1])
 
-    nsamples = df["fake_label"].value_counts().min()
-    grouped = df.groupby("fake_label", as_index=False)
-    df_b = grouped.apply(lambda x, n: x.sample(n), n=nsamples)
-    df_b.index = df_b.index.droplevel(0)
+    nsamples = frame["fake_label"].value_counts().min()
+    grouped = frame.groupby("fake_label", as_index=False)
+    frame_b = grouped.apply(lambda x, n: x.sample(n), n=nsamples)
+    frame_b.index = frame_b.index.droplevel(0)
 
     # makes classes balanced if desired
     if force_balance == "both":
-        return (df, df_b)
-    elif force_balance is True:
-        return df_b
-    elif force_balance is False:
-        return df
-    else:
-        raise ValueError("force_balance argument unclear.")
+        return (frame, frame_b)
+    if force_balance is True:
+        return frame_b
+    if force_balance is False:
+        return frame
+    raise ValueError("force_balance argument unclear.")
 
 
 def compare_distance_tables_cv(
-    table_0, table_1, n_folds=5, force_balance=True, lgbm_options=_default_lgbm_options
+    table_0, table_1, n_folds=5, force_balance=True, lgbm_options=None
 ):
     """Performs cross validation using the lightgbm library. Useful for determining
     the number of trees to use. Note that only the fold-averaged losses (and their
@@ -220,13 +218,16 @@ def compare_distance_tables_cv(
     returned.
     """
 
+    if lgbm_options is None:
+        lgbm_options = _default_lgbm_options
+
     feature_names = table_0.columns
 
-    df_b = combine_tables(table_0, table_1, force_balance=force_balance)
-    ds = lgbm.Dataset(df_b[feature_names], df_b["fake_label"])
+    frame_b = combine_tables(table_0, table_1, force_balance=force_balance)
+    dataset = lgbm.Dataset(frame_b[feature_names], frame_b["fake_label"])
 
     # train model
-    trees = lgbm.cv(lgbm_options, train_set=ds, nfold=n_folds, stratified=False)
+    trees = lgbm.cv(lgbm_options, train_set=dataset, nfold=n_folds, stratified=False)
 
     return trees
 
@@ -251,8 +252,7 @@ def summarize_shap_table(table, column_names, quantile=None):
     Mean or quantile of the absolute values of each column
     """
 
-    df = table[column_names]
+    frame = table[column_names]
     if quantile is None:
-        return df.abs().apply(lambda x: x.mean(), axis=0)
-    else:
-        return df.abs().apply(lambda x: x.quantile(quantile), axis=0)
+        return frame.abs().apply(lambda x: x.mean(), axis=0)
+    return frame.abs().apply(lambda x: x.quantile(quantile), axis=0)

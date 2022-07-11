@@ -1,13 +1,13 @@
 """Provides tools for transforming numpy trajectories into pandas.DataFrames
-for future analysis. 
+for future analysis.
 
 process is the primary function that transforms filenames into DataFrames of
 features. mprocess performs a similar task, but operates on lists of numpy
 files, parallelizes their featurization across processors, and then neatly
 aggregates the results into a single DataFrame.
 
-Other elements of this module include functions which form the actual 
-featurization, like rog (radius of gyration), as well as a simpler legacy function 
+Other elements of this module include functions which form the actual
+featurization, like rog (radius of gyration), as well as a simpler legacy function
 to create DataFrames of distances directly from arrays (make_distance_table).
 
 NOTE: Many featurization functions may have computation that is redundant to
@@ -20,7 +20,7 @@ from glob import glob
 import mdtraj
 import featurize as ft
 
-#the cg simulations we analyze are at the resolution of full_cg_atom_names, so 
+#the cg simulations we analyze are at the resolution of full_cg_atom_names, so
 #atomistic reference data sometimes has to be mapped to this resolution.
 #However, we are performing much of the resolution at cg_atom_names (which
 #here is carbon alpha resolution).
@@ -28,27 +28,27 @@ import featurize as ft
 full_cg_atom_names = ['O', 'N', 'CA', 'CB', 'C']
 cg_atom_names = ['CA']
 
-#some of the methods need a set of reference coordinates. 
+#some of the methods need a set of reference coordinates.
 #we first extract the atomistic coordinates
 ref_traj = mdtraj.load("filename.pdb")
 
 #Then we map to the carbon alpha resolution
 ref_traj = ft.atom_filter(ref_traj,atom_list=['CA'])
 
-#We then transform the coordinates to angstrom unites from nm (this 
-#is because of mdtraj units vs the unites typical trajectory files are in. 
+#We then transform the coordinates to angstrom unites from nm (this
+#is because of mdtraj units vs the unites typical trajectory files are in.
 #YMMV.
 ref_pdb_coords = ref_traj.xyz[0,:,:]*10.0
 
-#mprocess takes a list of featurization functions, which we will create and put in 
+#mprocess takes a list of featurization functions, which we will create and put in
 #featers.
 featers = []
-featers.append(ft.nc(ft.gen_dssp_codes,atom_names=full_cg_atom_names))
-featers.append(ft.nc(ft.rog,atom_names=cg_atom_names))
-cut_f = ft.nc(ft.sigmoid,
+featers.append(ft.ncurry(ft.gen_dssp_codes,atom_names=full_cg_atom_names))
+featers.append(ft.ncurry(ft.rog,atom_names=cg_atom_names))
+cut_f = ft.ncurry(ft.sigmoid,
               shift=6.5,
               scale=5e-1)
-native_f = ft.nc(ft.per_atom_frac_native_contacts,
+native_f = ft.ncurry(ft.per_atom_frac_native_contacts,
                         reference_pos=ref_pdb_coords,
                         contact_f=cut_f,
                         atom_names=cg_atom_names,
@@ -166,8 +166,8 @@ def process(array_filename, pdb_filename, featers, stride=1, self_label=False):
         tab = tab.iloc[::stride, :]
         tab["replica"] = rep
         proto_tables.append([tab])
-    for f in featers:
-        data, names = f(rpos, pdb_filename)
+    for feater in featers:
+        data, names = feater(rpos, pdb_filename)
         for datum, proto_table in zip(data, proto_tables):
             to_add = pd.DataFrame(datum, columns=names)
             to_add.index = proto_table[0].index
@@ -234,14 +234,14 @@ def mprocess(array_filenames, add_r_step_index=True, joblib=False, n_jobs=-2, **
     if isinstance(array_filenames, collections.Mapping):
         array_filenames = [{key: ob} for key, ob in array_filenames.items()]
     if joblib:
-        cur_p = nc(process, self_label=True, **kwargs)
+        cur_p = ncurry(process, self_label=True, **kwargs)
         results = jb.Parallel(n_jobs=n_jobs)(
             jb.delayed(cur_p)(i) for i in array_filenames
         )
     else:
         results = []
-        for fi in array_filenames:
-            subtable = process(fi, self_label=True, **kwargs)
+        for file_name in array_filenames:
+            subtable = process(file_name, self_label=True, **kwargs)
             results.append(subtable)
     table = pd.concat(results, axis=0)
     # the following steps cannot be performed with a duplicate axis
@@ -261,7 +261,7 @@ def mprocess(array_filenames, add_r_step_index=True, joblib=False, n_jobs=-2, **
     return table
 
 
-def HackyMDTrajTrajectory(array, pdb_filename, pdb_atom_names=None, *args, **kwargs):
+def HackyMDTrajTrajectory(array, pdb_filename, *args, pdb_atom_names=None, **kwargs):
     """Hacks a MDTrajTrajectory object together. Positions are set by
     @array and toplogy is set via an initial mdtraj object created from
     @pdb_name. @pdb_atom_names can filter the pdb (but not the coordinates)
@@ -366,10 +366,9 @@ def atom_filter(traj, atom_list, return_mask=False):
     booleans = [atom.name in atom_list for atom in traj.topology.atoms]
     if return_mask:
         return np.array(booleans)
-    else:
-        # this returns a 1 element tuple so note the terminal index
-        inds = np.array(booleans, dtype=int).nonzero()[0]
-        return traj.atom_slice(inds)
+    # this returns a 1 element tuple so note the terminal index
+    inds = np.array(booleans, dtype=int).nonzero()[0]
+    return traj.atom_slice(inds)
 
 
 def rmsd(rpos, pdb_filename, reference_pos, atom_names=None):
@@ -510,9 +509,11 @@ def per_atom_frac_native_contacts(
             "understood. Setting normalize_counts=False and continuing."
         )
         normalize_counts = False
-    d = nc(traj_distances_array, return_matrix=True, **distance_named_args)
-    reference_contacts = contact_f(d(reference_pos[None, :, :])).round()
-    dists_g = (d(pos) for pos in rpos)
+    curried_dists = ncurry(
+        traj_distances_array, return_matrix=True, **distance_named_args
+    )
+    reference_contacts = contact_f(curried_dists(reference_pos[None, :, :])).round()
+    dists_g = (curried_dists(pos) for pos in rpos)
     if non_native:
         reference_contacts = 1.0 - reference_contacts
     contacts = [reference_contacts * contact_f(dc) for dc in dists_g]
@@ -529,17 +530,16 @@ def per_atom_frac_native_contacts(
         else:
             agged = [np.sum(ctraj, axis=(1, 2)) for ctraj in contacts]
         return (agged, ["ag_frac_native_contacts"])
+    collapsed_reference_contacts = reference_contacts.sum(axis=(2,))
+    if normalize_counts:
+        collapsed_contacts = [
+            st.sum(axis=(2,)) / collapsed_reference_contacts for st in contacts
+        ]
     else:
-        collapsed_reference_contacts = reference_contacts.sum(axis=(2,))
-        if normalize_counts:
-            collapsed_contacts = [
-                st.sum(axis=(2,)) / collapsed_reference_contacts for st in contacts
-            ]
-        else:
-            collapsed_contacts = [st.sum(axis=(2,)) for st in contacts]
-        atoms = atom_filter(md.load(pdb_filename), atom_list=atom_names).topology.atoms
-        names = ["frac_native_contacts_" + str(name) for name in atoms]
-        return (collapsed_contacts, names)
+        collapsed_contacts = [st.sum(axis=(2,)) for st in contacts]
+    atoms = atom_filter(md.load(pdb_filename), atom_list=atom_names).topology.atoms
+    names = ["frac_native_contacts_" + str(name) for name in atoms]
+    return (collapsed_contacts, names)
 
 
 def traj_distances_skl(pos_array, return_tuple_labels=False, particle_names=None):
@@ -578,14 +578,13 @@ def traj_distances_skl(pos_array, return_tuple_labels=False, particle_names=None
         if particle_names is None:
             particle_names = [str(ob) for ob in list(range(n_particles))]
         labels = []
-        for p0, p1 in zip(*mat_mask):
-            name_0 = particle_names[p0]
-            name_1 = particle_names[p1]
+        for index_0, index_1 in zip(*mat_mask):
+            name_0 = particle_names[index_0]
+            name_1 = particle_names[index_1]
             label = sorted([name_1, name_0])
             labels.append(tuple(label))
         return (distance_array, labels)
-    else:
-        return distance_array
+    return distance_array
 
 
 def traj_distances_array(
@@ -657,29 +656,28 @@ def traj_distances_array(
         n_distances = n_particles * (n_particles - 1) // 2
         distance_array = np.empty((n_frames, n_distances))
         if indexing_seqs is None:
-            m, o = np.triu_indices(n_particles, k=1)
+            indices_0, indices_1 = np.triu_indices(n_particles, k=1)
         else:
-            m, o = indexing_seqs
+            indices_0, indices_1 = indexing_seqs
         for chunk in chunks:
             distance_matrix = np.linalg.norm(
                 pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :], axis=-1
             )
-            distance_array[chunk, :] = distance_matrix[:, m, o]
+            distance_array[chunk, :] = distance_matrix[:, indices_0, indices_1]
     if return_tuple_labels:
         if particle_names is None:
             particle_names = [str(ob) for ob in list(range(n_particles))]
         if array_labels:
-            labels = (m, o)
+            labels = (indices_0, indices_1)
         else:
             labels = []
-            for p0, p1 in zip(m, o):
-                name_0 = particle_names[p0]
-                name_1 = particle_names[p1]
+            for index_0, index_1 in zip(indices_0, indices_1):
+                name_0 = particle_names[index_0]
+                name_1 = particle_names[index_1]
                 label = sorted([name_1, name_0])
                 labels.append(tuple(label))
         return (distance_array, labels)
-    else:
-        return distance_array
+    return distance_array
 
 
 def make_distance_table(
@@ -708,7 +706,7 @@ def make_distance_table(
     return tab
 
 
-def sigmoid(x, shift=0.0, scale=1.0, clamp_min=-30, clamp_max=30):
+def sigmoid(arg, shift=0.0, scale=1.0, clamp_min=-30, clamp_max=30):
     """Simple sigmoid function.
 
     Arguments:
@@ -729,24 +727,24 @@ def sigmoid(x, shift=0.0, scale=1.0, clamp_min=-30, clamp_max=30):
     be ignored. This can be helped using the clamp arguments, but the effect is
     partial.
     """
-    clamped = np.clip(x, a_min=clamp_min, a_max=clamp_max)
+    clamped = np.clip(arg, a_min=clamp_min, a_max=clamp_max)
     return 1.0 / (1.0 + np.exp((clamped - shift) / scale))
 
 
-def nc(f, **kwargs):
+def ncurry(func, **kwargs):
     """Curry a function using named arguments. That is:
-    for f(x,y), nc(f,y=a) returns a function g, where
+    for f(x,y), ncurry(f,y=a) returns a function g, where
     g(b) = f(x=b,y=a). Useful when creating a fertilization function
     with certain options set.
     """
 
     def curried_f(*sub_args):
-        return f(*sub_args, **kwargs)
+        return func(*sub_args, **kwargs)
 
     return curried_f
 
 
-def label_mod(f, mod, append=False, **kwargs):
+def label_mod(func, mod, append=False, **kwargs):
     """Takes a featurization function and returns a new featurization function
     where the column names have a string prepended or appended.
 
@@ -765,7 +763,7 @@ def label_mod(f, mod, append=False, **kwargs):
     """
 
     def modded_f(*sub_args):
-        out = f(*sub_args, **kwargs)
+        out = func(*sub_args, **kwargs)
         if append:
             new_labels = [string + mod for string in out[1]]
         else:
@@ -775,7 +773,7 @@ def label_mod(f, mod, append=False, **kwargs):
     return modded_f
 
 
-def get_local_index(df):
+def get_local_index(frame):
     """Returns a pandas.Series which indexes the elements a given
     pandas.Dataframe 1:length. The series has the same internal index as the
     analyzed Dataframe.
@@ -787,8 +785,8 @@ def get_local_index(df):
     Returns:
         pandas.Series
     """
-    ser = pd.Series(np.arange(df.shape[0]))
-    ser.index = df.index
+    ser = pd.Series(np.arange(frame.shape[0]))
+    ser.index = frame.index
     return ser
 
 

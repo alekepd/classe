@@ -8,15 +8,21 @@ def _identity(var):
 
 
 class PCAUMAP:
+    """Dimensional reduction object that combine's PCA post processing with
+    UMAP dimensional reduction.
+
+    Implements the sklearn fit/transform API.
+    """
+
+    default_pca_params = {"n_components": 5}
+    default_umap_params = {"n_neighbors": 5, "n_components": 2}
+
     def __init__(
         self,
-        pca_params={"n_components": 5},
-        umap_params={"n_neighbors": 5, "n_components": 2},
+        pca_params=None,
+        umap_params=None,
     ):
-        """Dimensional reduction object that combine's PCA post processing with
-        UMAP dimensional reduction.
-
-        Implements the sklearn fit/transform API.
+        """Initializes object.
 
         Arguments
         ---------
@@ -25,33 +31,40 @@ class PCAUMAP:
         umap_params: dictionary
             passed to umap-learn UMAP initialization as options.
         """
-        self.PCA = PCA(**pca_params)
-        self.UMAP = UMAP(**umap_params)
+        if pca_params is None:
+            pca_params = PCAUMAP.default_pca_params
+        if umap_params is None:
+            umap_params = PCAUMAP.default_umap_params
+        self.pca = PCA(**pca_params)
+        self.umap = UMAP(**umap_params)
 
     def fit(self, feats):
         """See sklearn's PCA.fit method."""
-        self.PCA.fit(feats)
-        pca_out = self.PCA.transform(feats)
-        self.UMAP.fit(pca_out)
+        self.pca.fit(feats)
+        pca_out = self.pca.transform(feats)
+        self.umap.fit(pca_out)
 
     def transform(self, feats):
         """See sklearn's PCA.transform method."""
-        pca_out = self.PCA.transform(feats)
-        return self.UMAP.transform(pca_out)
+        pca_out = self.pca.transform(feats)
+        return self.umap.transform(pca_out)
 
 
 class TransferCV:
+    """Reduces a dataset using dimensional reduction, and then trains a
+    regressor to reproduce this reduction. Useful when dimensional reduction
+    must be applied outside the training set. Implements sklearn
+    fit/transform syntax, and add transfer_transform which convenient for
+    SHAP analysis.
+    """
+
     def __init__(
         self,
         transfer_featurizer=_identity,
-        reducer=PCAUMAP(),
-        regressor=KNR(n_neighbors=5),
+        reducer=None,
+        regressor=None,
     ):
-        """Reduces a dataset using dimensional reduction, and then trains a
-        regressor to reproduce this reduction. Useful when dimensional reduction
-        must be applied outside the training set. Implements sklearn
-        fit/transform syntax, and add transfer_transform which convenient for
-        SHAP analysis.
+        """Initializes object.
 
         Arguments
         ---------
@@ -66,10 +79,15 @@ class TransferCV:
                  instance)
                  Function used to emulate the output of reducer.
         """
+        if reducer is None:
+            reducer = PCAUMAP()
+        if regressor is None:
+            regressor = KNR(n_neighbors=5)
 
         self.featurizer = transfer_featurizer
         self.reducer = reducer
         self.regressor = regressor
+        self.ref_cv_vals = None
 
     def fit(self, data):
         """See sklearn's PCA.fit method."""
