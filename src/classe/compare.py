@@ -3,7 +3,8 @@ import lightgbm as lgbm
 import numpy as np
 import shap
 
-kb = 1.380649 * (10**-23)  # boltzmann constant J/K
+#kb = 1.380649 * (10**-23)  # boltzmann constant J/K
+kb = 1.987204259* (10**-3) # kcal/(mol K)
 
 # trajectory position array shapes: n_frames, n_atoms, n_dim
 # feature array shapes: n_cases, n_features
