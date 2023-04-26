@@ -1,14 +1,18 @@
+"""Provides classes for creating collective variables.
+"""
+
 from sklearn.neighbors import KNeighborsRegressor as KNR
 from sklearn.decomposition import PCA
 from umap import UMAP
 
 
+# identity function
 def _identity(var):
     return var
 
 
 class PCAUMAP:
-    """Dimensional reduction object that combine's PCA post processing with
+    """Dimensional reduction object that combines PCA preprocessing with
     UMAP dimensional reduction.
 
     Implements the sklearn fit/transform API.
@@ -27,10 +31,11 @@ class PCAUMAP:
         Arguments
         ---------
         pca_params: dictionary
-            passed to sklearn PCA initialization as option.
+            Passed to sklearn PCA initialization as option.
         umap_params: dictionary
-            passed to umap-learn UMAP initialization as options.
+            Passed to umap-learn UMAP initialization as options.
         """
+
         if pca_params is None:
             pca_params = PCAUMAP.default_pca_params
         if umap_params is None:
@@ -40,12 +45,14 @@ class PCAUMAP:
 
     def fit(self, feats):
         """See sklearn's PCA.fit method."""
+
         self.pca.fit(feats)
         pca_out = self.pca.transform(feats)
         self.umap.fit(pca_out)
 
     def transform(self, feats):
         """See sklearn's PCA.transform method."""
+
         pca_out = self.pca.transform(feats)
         return self.umap.transform(pca_out)
 
@@ -74,11 +81,12 @@ class TransferCV:
             is outputted during classification analysis, but can be anything.
         reducer: object implementing sklearn fit/transform API (default: PCAUMAP
                  instance)
-                 Function used for original dimensional reduction.
+            Function used for original dimensional reduction.
         regressor: object implementing sklearn fit/predict API (default: KNR
                  instance)
-                 Function used to emulate the output of reducer.
+            Function used to emulate the output of reducer.
         """
+
         if reducer is None:
             reducer = PCAUMAP()
         if regressor is None:
@@ -90,7 +98,11 @@ class TransferCV:
         self.ref_cv_vals = None
 
     def fit(self, data):
-        """See sklearn's PCA.fit method."""
+        """See sklearn's PCA.fit method.
+
+        Note that the self.featurizer (transfer_featurizer) is not applied here.
+        """
+
         self.reducer.fit(data)
         self.ref_cv_vals = self.reducer.transform(data)
         self.regressor.fit(data, self.ref_cv_vals)
@@ -105,9 +117,11 @@ class TransferCV:
         featurizer and then apply the trained object directly on the structural
         features.
         """
+
         pretransformed = self.featurizer(data)
         return self.regressor.predict(pretransformed)
 
     def transform(self, data):
         """See sklearn's PCA.fit transform."""
+
         return self.regressor.predict(data)
