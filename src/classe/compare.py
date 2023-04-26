@@ -1,14 +1,16 @@
+"""Provides routines for comparing two data frames characterizing trajectories
+using classification and shap values.
+"""
+
 import pandas as pd
 import lightgbm as lgbm
 import numpy as np
 import shap
 
-#kb = 1.380649 * (10**-23)  # boltzmann constant J/K
-kb = 1.987204259* (10**-3) # kcal/(mol K)
+kb = 1.987204259 * (10**-3)  # kcal/(mol K)
 
 # trajectory position array shapes: n_frames, n_atoms, n_dim
 # feature array shapes: n_cases, n_features
-
 # indices of tables matter for identifying samples
 
 _default_lgbm_options = {
@@ -26,20 +28,22 @@ def compare_tables(
     table_1,
     temperature,
     train_fraction=0.5,
-    lgbm_options=_default_lgbm_options,
+    lgbm_options=None,
     return_label_lists=True,
 ):
-    """Create a shap table using structure tables. Performs tree classification
+    """Create a shap table from feature tables. Performs tree classification
     between data in table_0 and table_1, and then extracts SHAP values.
+
+    (Free) energy values are in kcal/(mol * K).
 
     Arguments
     ---------
     table_0: panda DataFrame
-        Structural data from ensemble 0 (0-indexed). Columns should only contain
-        feature values, index should be frame number.
+        Structural (featurized) data from ensemble 0 (0-indexed). Columns should
+        only contain feature values, index should be frame number.
     table_1: panda DataFrame
-        Structural data from ensemble 1 (0-indexed). Columns should only contain
-        feature values, index should be frame number.
+        Structural data (featurized) from ensemble 1 (0-indexed). Columns should
+        only contain feature values, index should be frame number.
     temperature: positive real
         Temperature of the system in Kelvin. Converted to J via module variable
         `kb` when calculating delta_u.
@@ -69,20 +73,25 @@ def compare_tables(
         other_names
             List of other column names
     else:
-        only the shap df
+        only the shap data frame
 
-    shap df has many columns. Feature are included with names unchanged; shap
-    values are the same as features but prefixed with "s-". delta_u uses the
-    trained model to estimate the pointwise difference in the PMFs/log densities
-    of the provided data tree_output notes the original output of the model
-    (between 0 and 1).  fake_label is primarily for debugging and notes the
-    label that was used internally for a given example.
+    The shap data frame has many columns. Features are included with names
+    unchanged; shap values are the same as features but prefixed with "s-".
+    delta_u uses the trained model to estimate the pointwise difference in the
+    PMFs/log densities of the provided data tree_output notes the original
+    output of the model (between 0 and 1).  fake_label is primarily for
+    debugging and notes the label that was used internally for a given example.
     """
+
+    if lgbm_options is None:
+        lgbm_options = _default_lgbm_options
 
     kbt = temperature * kb
 
     feature_names = table_0.columns
 
+    # create full and balanced dataframes. We train on the balanced one,
+    # then use model to create labels for full frame.
     frame, frame_b = combine_tables(table_0, table_1, force_balance="both")
 
     # mark who is in train vs test
@@ -108,7 +117,7 @@ def compare_tables(
     frame["in_train"] = frame_b["in_train"]
     frame["in_train"].fillna(False)
 
-    # get tree output
+    # get tree output for full data frame
     frame["tree_output"] = trees.predict(frame[feature_names])
 
     nonfeature_names = list(set(frame.columns) - set(feature_names))
@@ -142,8 +151,9 @@ def compare_tables(
     return frame_shap
 
 
-def combine_tables(table_0, table_1, force_balance=False):
-    """Provide summary statistics for a shap table.
+def combine_tables(table_0, table_1, force_balance=False, add_label="fake_label"):
+    """Nicely concatenate two data tables, optionally balancing number of
+    records coming from each argument.
 
     Arguments
     ---------
@@ -155,27 +165,38 @@ def combine_tables(table_0, table_1, force_balance=False):
         Columns are features.
     force_balance: boolean or 'both' (default: False)
         If true, the classes are balanced (so that there is an approximately equal
-        number of samples from table_0 and table_1).
+        number of samples from table_0 and table_1). Index values correctly
+        identify the records used.
+    add_label: string or None (default: "fake_label")
+        If not None, then a new column is added using this argument as its name.
+        This column contains a 0 or 1 based on whether a record came from
+        table_0 or table_1.
 
     Returns
     -------
-    If force_balance, tuple with first element the entire combined DataFrame
-    and second element the balanced frame. If false, only the combined frame.
+    If force_balance is truthy, tuple with first element the entire combined
+    DataFrame and second element the balanced frame. If false, only the
+    combined frame.
+
+    Returned frame has a hierarchical index, with outermost later using 0 and 1
+    to signify which frame a given record comes from, and the inner index
+    preserves the indices used in the original tables.
     """
 
     # make combined panda
     safe_t0 = table_0.copy()
     safe_t1 = table_1.copy()
-    safe_t0["fake_label"] = 0
-    safe_t1["fake_label"] = 1
+    if add_label is not None:
+        safe_t0[add_label] = 0
+        safe_t1[add_label] = 1
     frame = pd.concat([safe_t0, safe_t1], keys=[0, 1])
 
+    # random sample rows to make the balanced table
     nsamples = frame["fake_label"].value_counts().min()
     grouped = frame.groupby("fake_label", as_index=False)
     frame_b = grouped.apply(lambda x, n: x.sample(n), n=nsamples)
     frame_b.index = frame_b.index.droplevel(0)
 
-    # makes classes balanced if desired
     if force_balance == "both":
         return (frame, frame_b)
     if force_balance is True:
@@ -185,9 +206,7 @@ def combine_tables(table_0, table_1, force_balance=False):
     raise ValueError("force_balance argument unclear.")
 
 
-def compare_tables_cv(
-    table_0, table_1, n_folds=5, force_balance=True, lgbm_options=None
-):
+def compare_tables_cv(table_0, table_1, n_folds=5, lgbm_options=None):
     """Performs cross validation using the lightgbm library. Useful for determining
     the number of trees to use. Note that only the fold-averaged losses (and their
     standard deviations) as a function of tree number are returned.
@@ -224,10 +243,10 @@ def compare_tables_cv(
 
     feature_names = table_0.columns
 
-    frame_b = combine_tables(table_0, table_1, force_balance=force_balance)
+    frame_b = combine_tables(table_0, table_1, force_balance=True)
     dataset = lgbm.Dataset(frame_b[feature_names], frame_b["fake_label"])
 
-    # train model
+    # train model cv
     trees = lgbm.cv(lgbm_options, train_set=dataset, nfold=n_folds, stratified=False)
 
     return trees
