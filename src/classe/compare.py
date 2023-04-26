@@ -21,7 +21,7 @@ _default_lgbm_options = {
 }
 
 
-def compare_distance_tables(
+def compare_tables(
     table_0,
     table_1,
     temperature,
@@ -185,7 +185,7 @@ def combine_tables(table_0, table_1, force_balance=False):
     raise ValueError("force_balance argument unclear.")
 
 
-def compare_distance_tables_cv(
+def compare_tables_cv(
     table_0, table_1, n_folds=5, force_balance=True, lgbm_options=None
 ):
     """Performs cross validation using the lightgbm library. Useful for determining
