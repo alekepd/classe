@@ -20,6 +20,14 @@ estimate of difference in free energy surfaces, but also provides a
 decomposition using SHAP values to identify which features (typically
 interatomic distances) contribute to the estimated error.
 
+## Installation
+
+`classe` can be be installed by cloning this repo, changing to its root
+directory, and calling `pip install .` or `pip install .[cv]`. The former only
+install the libraries needed for error analysis, while the latter installs a larger
+set of packages allowing for the creation of collective variables (as well as
+error analysis).
+
 ## Example usage
 ```python
 import classe.featurization as feat
