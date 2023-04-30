@@ -1,9 +1,19 @@
 """Provides classes for creating collective variables.
 """
 
+from copy import deepcopy
 from sklearn.neighbors import KNeighborsRegressor as KNR
 from sklearn.decomposition import PCA
 from umap import UMAP
+
+_default_cv_options = {
+    "pca_n_components": 5,
+    "umap_n_neighbors": 5,
+    "umap_n_components": 2,
+}
+
+PCA_PRE = "pca_"
+UMAP_PRE = "umap_"
 
 
 # identity function
@@ -23,23 +33,37 @@ class PCAUMAP:
 
     def __init__(
         self,
-        pca_params=None,
-        umap_params=None,
+        **kwargs,
     ):
         """Initializes object.
 
         Arguments
         ---------
-        pca_params: dictionary
-            Passed to sklearn PCA initialization as option.
-        umap_params: dictionary
-            Passed to umap-learn UMAP initialization as options.
+        kwargs: dictionary
+            Collection of arguments of form {function_option:value}l
+            options prefixed with "pca_" are stripped of prefix and
+            passed to PCA, options prefixed with "umap_" are stripped
+            of prefix and passed to UMAP.
         """
 
-        if pca_params is None:
-            pca_params = PCAUMAP.default_pca_params
-        if umap_params is None:
-            umap_params = PCAUMAP.default_umap_params
+        args = deepcopy(_default_cv_options)
+
+        pca_params = {}
+        umap_params = {}
+
+        keys = list(args.keys())
+        for key in keys:
+            if key.find(PCA_PRE) == 0:
+                derived_key = key.removeprefix(PCA_PRE)
+                value = args.pop(key)
+                pca_params.update({derived_key: value})
+            if key.find(UMAP_PRE) == 0:
+                derived_key = key.removeprefix(UMAP_PRE)
+                value = args.pop(key)
+                umap_params.update({derived_key: value})
+        if len(args) > 0:
+            raise ValueError(f"Unrecognized argument: {args}")
+
         self.pca = PCA(**pca_params)
         self.umap = UMAP(**umap_params)
 
