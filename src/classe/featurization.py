@@ -624,6 +624,7 @@ def traj_distances_array(
     indexing_seqs=None,
     batch_size=50000,
     return_matrix=False,
+    box_diam=None,
 ):
     """Transforms position trajectory into array of nonrepeated distances.
     Uses array operations, relatively fast.
@@ -655,6 +656,9 @@ def traj_distances_array(
         NOTE: if return_matrix and return_inds are both specified then
         hypothetically valid indices are returned, but no indexing if
         performed.
+    box_diam (None or positive float):
+        If not None, distances are calculated in the context of a cubic periodic
+        box of diameter box_diam.
 
 
     Return
@@ -677,9 +681,12 @@ def traj_distances_array(
     if return_matrix:
         distance_array = np.empty((n_frames, n_particles, n_particles))
         for chunk in chunks:
-            distance_matrix = np.linalg.norm(
-                pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :], axis=-1
-            )
+            abs_disps = abs(pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :])
+            if box_diam is not None:
+                disps = np.where(
+                    abs_disps < (box_diam / 2), abs_disps, box_diam - abs_disps
+                )
+            distance_matrix = np.linalg.norm(disps, axis=-1)
             distance_array[chunk, :, :] = distance_matrix
     else:
         n_distances = n_particles * (n_particles - 1) // 2
@@ -689,9 +696,12 @@ def traj_distances_array(
         else:
             indices_0, indices_1 = indexing_seqs
         for chunk in chunks:
-            distance_matrix = np.linalg.norm(
-                pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :], axis=-1
-            )
+            abs_disps = abs(pos_array[chunk, None, :, :] - pos_array[chunk, :, None, :])
+            if box_diam is not None:
+                abs_disps = np.where(
+                    abs_disps < (box_diam / 2), abs_disps, box_diam - abs_disps
+                )
+            distance_matrix = np.linalg.norm(abs_disps, axis=-1)
             distance_array[chunk, :] = distance_matrix[:, indices_0, indices_1]
     if return_tuple_labels:
         if particle_names is None:
