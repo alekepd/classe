@@ -9,6 +9,19 @@ import shap
 
 kb = 1.987204259 * (10**-3)  # kcal/(mol K)
 
+# keys for values in returned dictionary
+TABLE_KEY = "table"
+FEATCOL_KEY = "feature_names"
+SHAPCOL_KEY = "shap_names"
+SHAPER_KEY = "shaper"
+OTHERCOL_KEY = "other"
+
+# column names for output table
+INTRAIN_CKEY = "in_train"
+DELTAU_CKEY = "delta_u"
+FAKELABEL_CKEY = "fake_label"
+TREEOUT_CKEY = "tree_output"
+
 # trajectory position array shapes: n_frames, n_atoms, n_dim
 # feature array shapes: n_cases, n_features
 # indices of tables matter for identifying samples
@@ -21,6 +34,32 @@ _default_lgbm_options = {
     "feature_fraction": 0.5,
     "n_iter": 100,
 }
+
+
+# prefix used for naming shap columns based on feature columns
+SHAP_PRE = "s-"
+
+
+def shapify_name(name):
+    """Takes a variable name and returns a version for its corresponding SHAP
+    value.
+    """
+
+    return SHAP_PRE + name
+
+
+def deshapify_name(name):
+    """Transforms a shap'ed variable name back to its original."""
+
+    if len(name) < 4:
+        raise ValueError("Not a shaped variable name; too short.")
+    if name.find("s-") != 0:
+        raise ValueError("Not a shaped variable name; bad prefix.")
+    return name[2:]
+
+
+_test_string = "abcd-efg-92.g_h"
+assert deshapify_name(shapify_name(_test_string)) == _test_string
 
 
 def compare_tables(
@@ -100,25 +139,25 @@ def compare_tables(
         list(range(len(mask))), np.int(len(mask) * train_fraction)
     )
     mask[to_change] = True
-    frame_b["in_train"] = mask
+    frame_b[INTRAIN_CKEY] = mask
 
     # make lgbm dataset objects
-    frame_train = frame_b[frame_b["in_train"]]
-    frame_test = frame_b[~frame_b["in_train"]]
-    ds_train = lgbm.Dataset(frame_train[feature_names], frame_train["fake_label"])
+    frame_train = frame_b[frame_b[INTRAIN_CKEY]]
+    frame_test = frame_b[~frame_b[INTRAIN_CKEY]]
+    ds_train = lgbm.Dataset(frame_train[feature_names], frame_train[FAKELABEL_CKEY])
     ds_test = lgbm.Dataset(
-        frame_test[feature_names], frame_test["fake_label"], reference=ds_train
+        frame_test[feature_names], frame_test[FAKELABEL_CKEY], reference=ds_train
     )
 
     # train model
     trees = lgbm.train(lgbm_options, train_set=ds_train, valid_sets=[ds_test])
 
     # associate train labels from subsetted data to original frame
-    frame["in_train"] = frame_b["in_train"]
-    frame["in_train"].fillna(False)
+    frame[INTRAIN_CKEY] = frame_b[INTRAIN_CKEY]
+    frame[INTRAIN_CKEY].fillna(False)
 
     # get tree output for full data frame
-    frame["tree_output"] = trees.predict(frame[feature_names])
+    frame[TREEOUT_CKEY] = trees.predict(frame[feature_names])
 
     nonfeature_names = list(set(frame.columns) - set(feature_names))
 
@@ -131,27 +170,27 @@ def compare_tables(
     )
 
     # rename and put label columns
-    frame_shap.columns = ["s-" + ob for ob in feature_names]
+    frame_shap.columns = [shapify_name(ob) for ob in feature_names]
     shap_names = frame_shap.columns
     frame_shap.index = frame.index
     frame_shap = pd.concat([frame, frame_shap], axis=1)
-    frame_shap["delta_u"] = -kbt * np.log(
-        frame_shap["tree_output"] / (1 - frame_shap["tree_output"])
+    frame_shap[DELTAU_CKEY] = -kbt * np.log(
+        frame_shap[TREEOUT_CKEY] / (1 - frame_shap[TREEOUT_CKEY])
     )
 
     if return_label_lists:
         agg = {
-            "table": frame_shap,
-            "feature_names": feature_names,
-            "shap_names": shap_names,
-            "other_names": nonfeature_names,
-            "shaper": lambda x: explainer.shap_values(x)[0],
+            TABLE_KEY: frame_shap,
+            FEATCOL_KEY: feature_names,
+            SHAPCOL_KEY: shap_names,
+            OTHERCOL_KEY: nonfeature_names,
+            SHAPER_KEY: lambda x: explainer.shap_values(x)[0],
         }
         return agg
     return frame_shap
 
 
-def combine_tables(table_0, table_1, force_balance=False, add_label="fake_label"):
+def combine_tables(table_0, table_1, force_balance=False, add_label=FAKELABEL_CKEY):
     """Nicely concatenate two data tables, optionally balancing number of
     records coming from each argument.
 
@@ -167,7 +206,7 @@ def combine_tables(table_0, table_1, force_balance=False, add_label="fake_label"
         If true, the classes are balanced (so that there is an approximately equal
         number of samples from table_0 and table_1). Index values correctly
         identify the records used.
-    add_label: string or None (default: "fake_label")
+    add_label: string or None (default: FAKELABEL_CKEY)
         If not None, then a new column is added using this argument as its name.
         This column contains a 0 or 1 based on whether a record came from
         table_0 or table_1.
@@ -192,8 +231,8 @@ def combine_tables(table_0, table_1, force_balance=False, add_label="fake_label"
     frame = pd.concat([safe_t0, safe_t1], keys=[0, 1])
 
     # random sample rows to make the balanced table
-    nsamples = frame["fake_label"].value_counts().min()
-    grouped = frame.groupby("fake_label", as_index=False)
+    nsamples = frame[FAKELABEL_CKEY].value_counts().min()
+    grouped = frame.groupby(FAKELABEL_CKEY, as_index=False)
     frame_b = grouped.apply(lambda x, n: x.sample(n), n=nsamples)
     frame_b.index = frame_b.index.droplevel(0)
 
@@ -244,7 +283,7 @@ def compare_tables_cv(table_0, table_1, n_folds=5, lgbm_options=None):
     feature_names = table_0.columns
 
     frame_b = combine_tables(table_0, table_1, force_balance=True)
-    dataset = lgbm.Dataset(frame_b[feature_names], frame_b["fake_label"])
+    dataset = lgbm.Dataset(frame_b[feature_names], frame_b[FAKELABEL_CKEY])
 
     # train model cv
     trees = lgbm.cv(lgbm_options, train_set=dataset, nfold=n_folds, stratified=False)
