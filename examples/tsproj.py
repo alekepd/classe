@@ -56,6 +56,7 @@ PROJTRAJ_KEY = "proj_traj"
 MAXDIST_KEY = "max_dist"
 BATCHSIZE_KEY = "batch_size"
 LGBMOPT_KEY = "lgbm_options"
+TRAINF_KEY = "train_frac"
 CV_KEY = "cv"
 CVOPT_KEY = "cv_options"
 CVMAXMAP_KEY = "cv_max_map"
@@ -188,6 +189,13 @@ def parse_args():
         action="append",
         nargs=2,
         help="Additional arguments to LGBM. Must of be the form 'argument' 'value'.",
+    )
+    parser.add_argument(
+        pr(TRAINF_KEY),
+        action="store",
+        type=float,
+        default=0.8,
+        help="Fraction of data to use for LGBM training (between 0 and 1 inclusive).",
     )
     parser.add_argument(
         pr(STATSTAB_KEY),
@@ -504,7 +512,11 @@ def main():
     # run classe analysis
     lgbm_params = make_lgbm_args(options[LGBMOPT_KEY])
     analysis = cc.compare_tables(
-        feat_1, feat_2, temperature=options[TEMP_KEY], lgbm_options=lgbm_params
+        feat_1,
+        feat_2,
+        temperature=options[TEMP_KEY],
+        train_fraction=options[TRAINF_KEY],
+        lgbm_options=lgbm_params,
     )
 
     save_stem = save_filename_stem(options[TRAJ1_KEY], options[TRAJ2_KEY])
