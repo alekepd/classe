@@ -64,6 +64,7 @@ STATSTAB_KEY = "stats"
 NSTATS_KEY = "n_stats"
 TEMP_KEY = "temp"
 LZ4_KEY = "lz4"
+GFILESUFF_KEY = "file_suffix"
 
 # Extensions and comment characters to use in csv writing
 COMMENT_PF = "# "
@@ -205,6 +206,13 @@ def parse_args():
         pr(LZ4_KEY),
         action="store_true",
         help="Write csv files using lz4 compression. Requires lz4 library.",
+    )
+    parser.add_argument(
+        pr(GFILESUFF_KEY),
+        action="store",
+        type=str,
+        default="",
+        help="Suffix (before extension) for all saved files. Defaults to no suffix.",
     )
     return vars(parser.parse_args())
 
@@ -511,7 +519,7 @@ def main():
 
     write_table_csv(
         analysis[cc.TABLE_KEY],
-        filename=path_cat(save_stem, SHAP_FILE_TAG),
+        filename=path_cat(save_stem, SHAP_FILE_TAG + options[GFILESUFF_KEY]),
         lz4=options[LZ4_KEY],
         lgbm_params=lgbm_params,
         cmdline_options=options,
@@ -529,7 +537,9 @@ def main():
         summary_tab = pd.DataFrame(top_shap_stats, index=top_features).T
         write_table_csv(
             summary_tab,
-            filename=path_cat(save_stem, SHAP_SUMMARY_FILE_TAG),
+            filename=path_cat(
+                save_stem, SHAP_SUMMARY_FILE_TAG + options[GFILESUFF_KEY]
+            ),
             lz4=options[LZ4_KEY],
             lgbm_params=lgbm_params,
             cmdline_options=options,
@@ -591,7 +601,7 @@ def main():
 
         write_table_csv(
             data,
-            filename=path_cat(save_stem, SHAP_CV_FILE_TAG),
+            filename=path_cat(save_stem, SHAP_CV_FILE_TAG + options[GFILESUFF_KEY]),
             lz4=options[LZ4_KEY],
             lgbm_params=lgbm_params,
             cmdline_options=options,
