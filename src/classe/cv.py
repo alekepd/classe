@@ -7,8 +7,8 @@ from sklearn.decomposition import PCA
 from umap import UMAP
 
 _default_cv_options = {
-    "pca_n_components": 5,
-    "umap_n_neighbors": 5,
+    "pca_n_components": 20,
+    "umap_n_neighbors": 8,
     "umap_n_components": 2,
 }
 

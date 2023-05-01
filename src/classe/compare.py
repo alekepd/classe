@@ -27,12 +27,17 @@ TREEOUT_CKEY = "tree_output"
 # indices of tables matter for identifying samples
 
 _default_lgbm_options = {
-    "num_leaves": 6,
+    "num_leaves": 5,
     "objective": "binary",
     "metric": ["binary", "l2", "binary_error"],
     "boosting": "dart",
-    "feature_fraction": 0.5,
-    "n_iter": 100,
+    "n_iter": 500,
+    "max_bin": 6150,
+    "feature_fraction": 0.80,
+    "drop_rate": 0.5,
+    "max_drop": 1000,
+    "bagging_freq": 50,
+    "bagging_fraction": 0.15,
 }
 
 
