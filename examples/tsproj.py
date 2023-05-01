@@ -77,6 +77,8 @@ SHAP_FILE_TAG = ""
 SHAP_SUMMARY_FILE_TAG = "_stats"
 SHAP_CV_FILE_TAG = "_cv"
 
+# Names for columns written solely in this command
+INCVTRAIN_CKEY = "in_cv_train"
 
 def pr(key):
     """Adds prefix for making command line options."""
@@ -609,7 +611,7 @@ def main():
 
         data = pd.concat([interp, extrap])
 
-        add_index_mask(data, cv_train_index, "in_cv_train")
+        add_index_mask(data, cv_train_index, INCVTRAIN_CKEY)
 
         write_table_csv(
             data,
