@@ -80,6 +80,7 @@ SHAP_CV_FILE_TAG = "_cv"
 # Names for columns written solely in this command
 INCVTRAIN_CKEY = "in_cv_train"
 
+
 def pr(key):
     """Adds prefix for making command line options."""
 
@@ -611,7 +612,11 @@ def main():
 
         data = pd.concat([interp, extrap])
 
+        # mark while samples are knn-extrapolated
         add_index_mask(data, cv_train_index, INCVTRAIN_CKEY)
+
+        # add delta u
+        data[cc.DELTAU_CKEY] = table[cc.DELTAU_CKEY]
 
         write_table_csv(
             data,
