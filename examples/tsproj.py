@@ -166,10 +166,11 @@ def parse_args():
     )
     parser.add_argument(
         pr(PROJTRAJ_KEY),
-        action="store",
+        action="append",
         required=False,
+        default=[],
         type=Path,
-        help="Tertiary trajectory file to project onto derived variables (CVs).",
+        help="Tertiary trajectory files to project onto derived variables (CVs).",
     )
     parser.add_argument(
         pr(MAXDIST_KEY),
@@ -285,6 +286,20 @@ def path_cat(core, suff):
     """
 
     return core.parent / (core.name + suff)
+
+
+def get_filename_map(name_0, name_1, other_names):
+    """Creates lookup table mapping names to integers and integers to names.
+
+    Used for writing csv's with real file names. We assume that 0 and 1 are used in the
+    output of the classification routines; later indices are used consistently from this
+    map.
+    """
+
+    fmap = {name_0: 0, name_1: 1, 0: name_0, 1: name_1}
+    for ind, name in enumerate(other_names, 2):
+        fmap.update({ind: name, name: ind})
+    return fmap
 
 
 def write_table_csv(
@@ -526,12 +541,9 @@ def main():
 
     # this makes assumptions on how 0 and 1 are returned as index labels.
     # these relationships are documented in the main code.
-    filename_map = {
-        0: options[TRAJ1_KEY].name,
-        1: options[TRAJ2_KEY].name,
-        2: getattr(options[PROJTRAJ_KEY], "name", None),
-    }
-
+    filename_map = get_filename_map(
+        options[TRAJ1_KEY].name, options[TRAJ2_KEY].name, options[PROJTRAJ_KEY]
+    )
     write_table_csv(
         analysis[cc.TABLE_KEY],
         filename=path_cat(save_stem, SHAP_FILE_TAG + options[GFILESUFF_KEY]),
@@ -580,14 +592,14 @@ def main():
         # used for reporting at end
         cv_train_index = subbed.index
 
-        # if we need to project a third traj
-        if options[PROJTRAJ_KEY] is not None:
-            # we can only map so many points, so split our budget
-            native_map_budget = options[CVMAXMAP_KEY] // 2
-            extrap_map_budget = options[CVMAXMAP_KEY] - native_map_budget
-
-            feat_ex = feater(get_traj(options[PROJTRAJ_KEY]))
-            subbed = safe_sample(feat_ex, extrap_map_budget)
+        # if we need to project a tertiary trajs
+        extraps = []
+        # we can only map so many points, so split our budget
+        per_frame_map_budget = options[CVMAXMAP_KEY] // (len(options[PROJTRAJ_KEY]) + 1)
+        # for filename in enumerate(options[PROJTRAJ_KEY]
+        for traj_file in options[PROJTRAJ_KEY]:
+            feat_ex = feater(get_traj(traj_file))
+            subbed = safe_sample(feat_ex, per_frame_map_budget)
             extrap = make_transfer_cv_table(
                 subbed,
                 transfer_cv=CV,
@@ -596,21 +608,22 @@ def main():
 
             # make index a multiindex with outer value of 2 representing that
             # these samples came from the third traj
-            index = pd.MultiIndex.from_frame(pd.DataFrame({0: 2, 1: extrap.index}))
+            label_number = filename_map[traj_file]
+            index = pd.MultiIndex.from_frame(
+                pd.DataFrame({0: label_number, 1: extrap.index})
+            )
             extrap.index = index
-        else:
-            native_map_budget = options[CVMAXMAP_KEY]
-            extrap = pd.DataFrame()
+            extraps.append(extrap)
         feat_cols = analysis[cc.FEATCOL_KEY]
         # map more of original points using CV
-        subbed = safe_sample(table[feat_cols], native_map_budget)
+        subbed = safe_sample(table[feat_cols], per_frame_map_budget)
         interp = make_transfer_cv_table(
             subbed,
             transfer_cv=CV,
             desc_features=top_features,
         )
 
-        data = pd.concat([interp, extrap])
+        data = pd.concat([interp] + extraps)
 
         # mark while samples are knn-extrapolated
         add_index_mask(data, cv_train_index, INCVTRAIN_CKEY)
