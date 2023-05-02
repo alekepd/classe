@@ -457,7 +457,10 @@ def top_variables(shap_table, n, return_stats=False):
 
     stats = shap_table.apply(lambda x: np.median(np.abs(x)))
     stats.sort_values(ascending=False, inplace=True)
-    best_shaps = stats[:n]
+    if n < len(stats):
+        best_shaps = stats[:n]
+    else:
+        best_shaps = stats
     names = [cc.deshapify_name(x) for x in best_shaps.index]
     if return_stats:
         return (names, list(best_shaps))
