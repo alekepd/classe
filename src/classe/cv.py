@@ -15,6 +15,8 @@ _default_cv_options = {
 PCA_PRE = "pca_"
 UMAP_PRE = "umap_"
 
+DEFAULT_KNR_NNEIGH = 7
+
 
 # identity function
 def _identity(var):
@@ -27,9 +29,6 @@ class PCAUMAP:
 
     Implements the sklearn fit/transform API.
     """
-
-    default_pca_params = {"n_components": 5}
-    default_umap_params = {"n_neighbors": 5, "n_components": 2}
 
     def __init__(
         self,
@@ -114,7 +113,7 @@ class TransferCV:
         if reducer is None:
             reducer = PCAUMAP()
         if regressor is None:
-            regressor = KNR(n_neighbors=5)
+            regressor = KNR(n_neighbors=DEFAULT_KNR_NNEIGH)
 
         self.featurizer = transfer_featurizer
         self.reducer = reducer
