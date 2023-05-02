@@ -747,7 +747,7 @@ def make_distance_table(
 
     distance_array[distance_array > distance_max] = distance_max
     tab = pd.DataFrame(distance_array)
-    dist_names = [ob[0] + "-" + ob[1] for ob in dist_tups]
+    dist_names = [ob[0] + "-" + ob[1] for ob in sorted(dist_tups)]
     tab.columns = dist_names
     return tab
 
