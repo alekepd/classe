@@ -720,7 +720,11 @@ def traj_distances_array(
 
 
 def make_distance_table(
-    pos_array, distance_method=traj_distances_array, distance_max=np.Inf, **kwargs
+    pos_array,
+    distance_method=traj_distances_array,
+    distance_max=np.Inf,
+    sort_key=None,
+    **kwargs
 ):
     """Creates a distance panda from position array.
 
@@ -733,6 +737,12 @@ def make_distance_table(
         more information.
     distance_max:
         Distances larger than distance_max are set to distance max.
+    sort_key (callable):
+        Column names are created by first sorting pairs of strings returned
+        from the underlying distance method. sort_key is passed to `sorted` during
+        this step via the key= argument. If distance_method returns integers
+        cast to strings, set this to `int` to make site labels in each column
+        ordered according to numeric size.
     kwargs:
         Passed to distance_method
 
@@ -747,7 +757,8 @@ def make_distance_table(
 
     distance_array[distance_array > distance_max] = distance_max
     tab = pd.DataFrame(distance_array)
-    dist_names = [ob[0] + "-" + ob[1] for ob in sorted(dist_tups)]
+    dist_tups_sorted = (sorted(x, key=sort_key) for x in dist_tups)
+    dist_names = [ob[0] + "-" + ob[1] for ob in dist_tups_sorted]
     tab.columns = dist_names
     return tab
 

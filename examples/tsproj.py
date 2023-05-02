@@ -256,7 +256,11 @@ def get_featurizer(batch_size, distance_max, box_diam):
 
     def f(traj):
         return feat.make_distance_table(
-            traj, batch_size=batch_size, distance_max=distance_max, box_diam=box_diam
+            traj,
+            batch_size=batch_size,
+            distance_max=distance_max,
+            box_diam=box_diam,
+            sort_key=int,
         )
 
     return f
