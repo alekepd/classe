@@ -141,7 +141,7 @@ def compare_tables(
     # mark who is in train vs test
     mask = np.full(len(frame_b), False)
     to_change = np.random.choice(
-        list(range(len(mask))), np.int(len(mask) * train_fraction)
+        list(range(len(mask))), np.int(len(mask) * train_fraction), replace=False
     )
     mask[to_change] = True
     frame_b[INTRAIN_CKEY] = mask
