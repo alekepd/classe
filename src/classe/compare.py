@@ -6,6 +6,7 @@ import pandas as pd
 import lightgbm as lgbm
 import numpy as np
 import shap
+from copy import deepcopy
 
 kb = 1.987204259 * (10**-3)  # kcal/(mol K)
 
@@ -15,12 +16,29 @@ FEATCOL_KEY = "feature_names"
 SHAPCOL_KEY = "shap_names"
 SHAPER_KEY = "shaper"
 OTHERCOL_KEY = "other"
+LGBMOPT_KEY = "lgbm_options"
 
 # column names for output table
 INTRAIN_CKEY = "in_train"
 DELTAU_CKEY = "delta_u"
 FAKELABEL_CKEY = "fake_label"
 TREEOUT_CKEY = "tree_output"
+
+# lgbm allows the number of trees to be defined using multiple different keys
+# (from lgbm documentation):
+LGBM_NTREE_KEYS = [
+    "num_iterations",
+    "num_iteration",
+    "n_iter",
+    "num_tree",
+    "num_trees",
+    "num_round",
+    "num_rounds",
+    "nrounds",
+    "num_boost_round",
+    "n_estimators",
+    "max_iter",
+]
 
 # trajectory position array shapes: n_frames, n_atoms, n_dim
 # feature array shapes: n_cases, n_features
@@ -67,6 +85,16 @@ _test_string = "abcd-efg-92.g_h"
 assert deshapify_name(shapify_name(_test_string)) == _test_string
 
 
+def median_argmin(vals, window):
+    """Calculates the index of the minimum value after a rolling median has been
+    applied.
+    """
+
+    s = pd.Series(vals)
+    smoothed = s.rolling(window).median()
+    return smoothed.idxmin()
+
+
 def compare_tables(
     table_0,
     table_1,
@@ -74,6 +102,8 @@ def compare_tables(
     train_fraction=0.5,
     lgbm_options=None,
     return_label_lists=True,
+    n_cv_folds=None,
+    cv_smoothing_window=5,
 ):
     """Create a shap table from feature tables. Performs tree classification
     between data in table_0 and table_1, and then extracts SHAP values.
@@ -103,6 +133,16 @@ def compare_tables(
         This dictionary is passed to lgbm.train as options.
     return_label_lists: boolean (default: True)
         Modifies what is returned. See Return.
+    n_cv_folds: None or positive integer
+        If not None, then cross validation (using cv_fold folds) is used to find
+        the optimal number of trees minimizing the holdout
+        "binary_log-loss" series. Cross validation is only performed
+        on the training data, and searches up to the number of trees specified in
+        lgbm_options. See cv_smoothing_window.
+    cv_smoothing_window: positive integer
+        If n_cv_folds is not none, the average cross validation loss is smoothed
+        using a rolling median of this size when finding the optimal number of
+        trees.
 
     Return
     ------
@@ -116,6 +156,9 @@ def compare_tables(
             List of shap column names
         other_names
             List of other column names
+        lgbm_params
+            Dictionary of parameters used for production lgbm run. Useful if
+            arguments (n_cv_folds) perform changes to supplied parameters.
     else:
         only the shap data frame
 
@@ -128,7 +171,9 @@ def compare_tables(
     """
 
     if lgbm_options is None:
-        lgbm_options = _default_lgbm_options
+        lgbm_options = deepcopy(_default_lgbm_options)
+    else:
+        lgbm_options = deepcopy(lgbm_options)
 
     kbt = temperature * kb
 
@@ -149,6 +194,26 @@ def compare_tables(
     # make lgbm dataset objects
     frame_train = frame_b[frame_b[INTRAIN_CKEY]]
     frame_test = frame_b[~frame_b[INTRAIN_CKEY]]
+    if n_cv_folds is not None:
+        cv_results = compare_tables_cv(
+            table_0=frame_train,
+            table_1=None,
+            n_folds=n_cv_folds,
+            lgbm_options=lgbm_options,
+            feature_names=table_0.columns,
+        )
+        opt_n_trees = median_argmin(
+            # we must assume how lgbm names its output
+            cv_results["binary_logloss-mean"],
+            window=cv_smoothing_window,
+        )
+        # assign the number of trees to whatever key marked
+        # the number of trees before
+        _ = [
+            lgbm_options.update({key: opt_n_trees})
+            for key in LGBM_NTREE_KEYS
+            if key in lgbm_options.keys()
+        ]
     ds_train = lgbm.Dataset(frame_train[feature_names], frame_train[FAKELABEL_CKEY])
     ds_test = lgbm.Dataset(
         frame_test[feature_names], frame_test[FAKELABEL_CKEY], reference=ds_train
@@ -190,6 +255,7 @@ def compare_tables(
             SHAPCOL_KEY: shap_names,
             OTHERCOL_KEY: nonfeature_names,
             SHAPER_KEY: lambda x: explainer.shap_values(x)[0],
+            LGBMOPT_KEY: lgbm_options,
         }
         return agg
     return frame_shap
@@ -250,7 +316,14 @@ def combine_tables(table_0, table_1, force_balance=False, add_label=FAKELABEL_CK
     raise ValueError("force_balance argument unclear.")
 
 
-def compare_tables_cv(table_0, table_1, n_folds=5, lgbm_options=None):
+def compare_tables_cv(
+    table_0,
+    table_1,
+    n_folds=5,
+    lgbm_options=None,
+    feature_names=None,
+    signal_column=FAKELABEL_CKEY,
+):
     """Performs cross validation using the lightgbm library. Useful for determining
     the number of trees to use. Note that only the fold-averaged losses (and their
     standard deviations) as a function of tree number are returned.
@@ -258,15 +331,27 @@ def compare_tables_cv(table_0, table_1, n_folds=5, lgbm_options=None):
     Arguments
     ---------
     table_0: panda DataFrame
-        table of first (featurized) trajectory. Index should be the frame number.
-        Columns are features.
-    table_1: panda DataFrame
-        table of second (featurized) trajectory. Index should be the frame number.
-        Columns are features.
+        if table_1 is None:
+            combined table containing information on both trajectories obtained
+            using combine_tables.
+        else:
+            table of first (featurized) trajectory. Index should be the frame
+            number.  Columns are features.
+    table_1: panda DataFrame or None
+        Either a table of second (featurized) trajectory: index should be the
+        frame number, columns features; or, None, in which case table_0 contains
+        information on both classes.
     n_folds: positive integer (default: 5)
         Number of cross validation folds
     lgbm_options: dictionary
         Options passed to lightgbm
+    feature_names: list of strings or None
+        Names of columns which contain features in table_0 and table_1. If false, all
+        columns in table_0 are used.
+    signal_column: string
+        Specifies name of column that contains or will contain the false label used as a
+        target in classification
+
 
     Return
     ------
@@ -285,9 +370,13 @@ def compare_tables_cv(table_0, table_1, n_folds=5, lgbm_options=None):
     if lgbm_options is None:
         lgbm_options = _default_lgbm_options
 
-    feature_names = table_0.columns
+    if feature_names is None:
+        feature_names = table_0.columns
 
-    frame_b = combine_tables(table_0, table_1, force_balance=True)
+    if table_1 is None:
+        frame_b = table_0
+    else:
+        frame_b = combine_tables(table_0, table_1, force_balance=True)
     dataset = lgbm.Dataset(frame_b[feature_names], frame_b[FAKELABEL_CKEY])
 
     # train model cv

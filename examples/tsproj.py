@@ -65,6 +65,7 @@ STATSTAB_KEY = "stats"
 NSTATS_KEY = "n_stats"
 TEMP_KEY = "temp"
 LZ4_KEY = "lz4"
+CVFOLDS_KEY = "n_cval_folds"
 GFILESUFF_KEY = "file_suffix"
 
 # Extensions and comment characters to use in csv writing
@@ -218,6 +219,17 @@ def parse_args():
         pr(LZ4_KEY),
         action="store_true",
         help="Write csv files using lz4 compression. Requires lz4 library.",
+    )
+    parser.add_argument(
+        pr(CVFOLDS_KEY),
+        action="store",
+        type=int,
+        default=None,
+        help="Specifies number of cross validation folds used to reduce the number "
+        "of LGBM trees used in final classification. If not set, no cross validation "
+        "is performed, and final classification uses number of trees specified by "
+        "default or on the command line.  Increases computational cost but prevents "
+        "over fitting.",
     )
     parser.add_argument(
         pr(GFILESUFF_KEY),
@@ -542,7 +554,9 @@ def main():
         temperature=options[TEMP_KEY],
         train_fraction=options[TRAINF_KEY],
         lgbm_options=lgbm_params,
+        n_cv_folds=options[CVFOLDS_KEY]
     )
+    lgbm_params = analysis[cc.LGBMOPT_KEY]
 
     save_stem = save_filename_stem(options[TRAJ1_KEY], options[TRAJ2_KEY])
 
