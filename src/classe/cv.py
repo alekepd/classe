@@ -46,6 +46,7 @@ class PCAUMAP:
         """
 
         args = deepcopy(_default_cv_options)
+        args.update(kwargs)
 
         pca_params = {}
         umap_params = {}
