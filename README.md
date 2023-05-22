@@ -68,4 +68,5 @@ CV.fit(tabshap.sample(int(1e4)))
 #apply CV to subset of data using structural features
 coords=CV.transfer_transform(tabstruct.sample(int(1e4)))
 ```
-
+A executable python tool demonstrating typical analysis is found at 
+`examples/tsproj.py`.
